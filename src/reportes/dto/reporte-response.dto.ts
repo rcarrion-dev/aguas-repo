@@ -1,3 +1,5 @@
+import type { JwtPayload } from '../../auth/jwt';
+import { ROL } from '../../auth/roles';
 import { Reporte } from '../entities/reporte.entity';
 
 export class ReporteResponseDto {
@@ -30,6 +32,19 @@ export class ReporteResponseDto {
         nombre: reporte.usuario.nombre,
         apellido: reporte.usuario.apellido,
       };
+    }
+    return dto;
+  }
+
+  // Quién hizo un reporte es un dato personal. Admin y SSC lo necesitan para
+  // moderar y dar seguimiento; un usuario de la app solo lo ve en los suyos.
+  static paraLector(
+    dto: ReporteResponseDto,
+    lector: JwtPayload,
+  ): ReporteResponseDto {
+    const esPropio = String(dto.usuario?.idUsuario) === lector.sub;
+    if (lector.rol === ROL.USUARIO && !esPropio) {
+      delete dto.usuario;
     }
     return dto;
   }

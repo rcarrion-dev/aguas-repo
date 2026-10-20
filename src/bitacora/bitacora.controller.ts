@@ -13,13 +13,13 @@ export class BitacoraController {
   @Get()
   async findAll() {
     const entradas = await this.service.findAll();
-    return entradas.map(BitacoraResponseDto.fromEntity);
+    return entradas.map((e) => BitacoraResponseDto.fromEntity(e));
   }
 
   // Historial de un reporte específico
   @Get('reporte/:idReporte')
   async findByReporte(@Param('idReporte', ParseIntPipe) idReporte: number) {
     const entradas = await this.service.findByReporte(idReporte);
-    return entradas.map(BitacoraResponseDto.fromEntity);
+    return entradas.map((e) => BitacoraResponseDto.fromEntity(e));
   }
 }

@@ -1,61 +1,77 @@
-import { ValidationPipe } from '@nestjs/common';
+import { Logger, LogLevel, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
 import { mkdirSync } from 'node:fs';
-import { networkInterfaces } from 'node:os';
-import { join } from 'node:path';
 import { AppModule } from './app.module';
-import { assertJwtSecret } from './auth/jwt';
+import { assertJwtSecrets } from './auth/jwt';
+import { carpetaUploads } from './common/storage/evidencia-storage';
 
-async function bootstrap() {
-  // Multer NO crea la carpeta destino sola; si no existe, el primer upload
-  // truena. La creamos una vez al arrancar.
-  mkdirSync(join(process.cwd(), 'uploads'), { recursive: true });
+// En producción no se imprimen los niveles debug/verbose.
+const NIVELES_PRODUCCION: LogLevel[] = ['error', 'warn', 'log'];
 
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+async function bootstrap(): Promise<void> {
+  const produccion = process.env.NODE_ENV === 'production';
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    logger: produccion ? NIVELES_PRODUCCION : undefined,
+  });
+  const logger = new Logger('Bootstrap');
 
-  // Aquí el .env ya se leyó. Si falta JWT_SECRET, mejor tronar desde el
+  // Aquí el .env ya se leyó. Si falta un secreto, mejor tronar desde el
   // arranque con un mensaje claro que en el primer login.
-  assertJwtSecret();
+  assertJwtSecrets();
+  mkdirSync(carpetaUploads(), { recursive: true });
 
-  // transform:true para convertir los campos de texto que llegan por
-  // multipart/form-data (ej. idReporte) al tipo del DTO.
-  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  // ~12 cabeceras de seguridad (nosniff, CSP, frame-ancestors, etc.) y
+  // quita "X-Powered-By: Express".
+  app.use(helmet());
 
-  // El front (Next.js, otro origen) necesita permiso para llamar a la API.
-  app.enableCors();
+  // whitelist: quita campos que no están en el DTO.
+  // forbidNonWhitelisted: en vez de quitarlos en silencio, responde 400.
+  // transform: convierte los campos de multipart/form-data al tipo del DTO.
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
 
-  // Las evidencias (PDF/imágenes) viven en uploads/. Express las sirve tal
-  // cual: GET /uploads/<archivo> regresa el archivo con su Content-Type,
-  // sin pasar por ningún controller ni guard.
-  app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
+  // CORS es una regla del NAVEGADOR. La app iOS es nativa y el dashboard
+  // llama a la API desde su servidor (Next), así que ninguno lo necesita.
+  // Solo se habilita para los orígenes listados en FRONT_URL (separados
+  // por coma); sin FRONT_URL, ningún sitio web puede llamar a la API.
+  const origenes = (process.env.FRONT_URL ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  if (origenes.length > 0) {
+    app.enableCors({ origin: origenes });
+  }
 
-  // Documentación OpenAPI: Swagger UI en /docs, documento crudo en /docs-json.
-  const config = new DocumentBuilder()
-    .setTitle('Aguas! — API de reportes')
-    .setDescription(
-      'API REST de reportes de phishing. /reportes requiere un access token: ' +
-        'obténlo en POST /auth/login y pégalo en el botón Authorize.',
-    )
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, document);
+  // Swagger solo si se pide en el .env: en la entrega no se publica el
+  // mapa completo de la API.
+  if (process.env.ENABLE_DOCS === 'true') {
+    const config = new DocumentBuilder()
+      .setTitle('Aguas! — API de reportes')
+      .setDescription(
+        'API REST de reportes de phishing. Casi todo requiere un access ' +
+          'token: obténlo en POST /auth/login y pégalo en Authorize.',
+      )
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, config));
+    logger.warn('Swagger habilitado en /docs (ENABLE_DOCS=true)');
+  }
 
-  // 0.0.0.0 = todas las interfaces de red, no solo localhost: asi el celular
-  // o la laptop de un companero en la misma red pueden abrir http://<tu-ip>:3000
-  await app.listen(3000, '0.0.0.0');
-  console.log('API en http://localhost:3000 y en ' + lanUrls().join(', '));
+  // Dónde escucha lo decide el despliegue, no el código. En el laboratorio
+  // HOST=0.0.0.0 para que la app y el dashboard lleguen por la red.
+  const host = process.env.HOST ?? '127.0.0.1';
+  const port = Number(process.env.PORT ?? 3000);
+  await app.listen(port, host);
+  logger.log(`API escuchando en http://${host}:${port}`);
 }
 
-/** URLs por las que se llega a este servidor desde la red local. */
-function lanUrls(): string[] {
-  return Object.values(networkInterfaces())
-    .flat()
-    .filter((i) => i && i.family === 'IPv4' && !i.internal)
-    .map((i) => 'http://' + i!.address + ':3000');
-}
-
-bootstrap();
+void bootstrap();

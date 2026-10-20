@@ -1,15 +1,11 @@
-import {
-  randomBytes,
-  scrypt as scryptCb,
-  timingSafeEqual,
-} from 'node:crypto';
+import { randomBytes, scrypt as scryptCb, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 
-const scrypt = promisify(scryptCb) as (
+const scrypt: (
   password: string,
   salt: Buffer,
   keylen: number,
-) => Promise<Buffer>;
+) => Promise<Buffer> = promisify(scryptCb);
 
 const KEYLEN = 64;
 

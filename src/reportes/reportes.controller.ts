@@ -16,11 +16,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
-import {
-  ApiBearerAuth,
-  ApiConsumes,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt';
 import { ROL, Roles } from '../auth/roles';
@@ -31,9 +27,10 @@ import { ModerarReporteDto } from './dto/moderar-reporte.dto';
 import { ReporteResponseDto } from './dto/reporte-response.dto';
 import { EstadoReporte } from './entities/reporte.entity';
 import {
-  evidenciaMulterOptions,
+  evidenciaUploadOptions,
   MAX_ARCHIVOS,
-} from '../common/multer/evidencia-multer.config';
+  validarEvidencia,
+} from '../common/storage/evidencia-storage';
 import { MulterExceptionFilter } from '../common/multer/multer-exception.filter';
 
 // Todos los endpoints piden token (guard global en AuthModule).
@@ -50,7 +47,7 @@ export class ReportesController {
   @ApiConsumes('multipart/form-data')
   @UseFilters(MulterExceptionFilter)
   @UseInterceptors(
-    FilesInterceptor('archivos', MAX_ARCHIVOS, evidenciaMulterOptions),
+    FilesInterceptor('archivos', MAX_ARCHIVOS, evidenciaUploadOptions),
   )
   async create(
     @CurrentUser() user: JwtPayload,
@@ -62,21 +59,20 @@ export class ReportesController {
         'Escribe el teléfono o el enlace del estafador (al menos uno de los dos).',
       );
     }
-    if (!files || files.length === 0) {
-      throw new BadRequestException(
-        'Debes adjuntar un archivo de evidencia.',
-      );
-    }
-    const reporte = await this.service.create(Number(user.sub), dto, files);
+    // Se valida el archivo (bytes y extensión) ANTES de crear el reporte.
+    const validadas = validarEvidencia(files);
+    const reporte = await this.service.create(Number(user.sub), dto, validadas);
     return ReporteResponseDto.fromEntity(reporte);
   }
 
   // GET /reportes -> buscador (RF04), solo reportes verificados.
   // Cualquier sesión (usuario, SSC, admin). Es lo que usa SSC para el seguimiento.
   @Get()
-  async findPublicos() {
+  async findPublicos(@CurrentUser() user: JwtPayload) {
     const reportes = await this.service.findPublicos();
-    return reportes.map(ReporteResponseDto.fromEntity);
+    return reportes.map((r) =>
+      ReporteResponseDto.paraLector(ReporteResponseDto.fromEntity(r), user),
+    );
   }
 
   // GET /reportes/todos -> panel de moderación, todos los estados. Solo admin.
@@ -84,7 +80,7 @@ export class ReportesController {
   @Roles(ROL.ADMIN)
   async findAll() {
     const reportes = await this.service.findAll();
-    return reportes.map(ReporteResponseDto.fromEntity);
+    return reportes.map((e) => ReporteResponseDto.fromEntity(e));
   }
 
   // GET /reportes/mios -> solo los reportes del usuario del token.
@@ -105,7 +101,8 @@ export class ReportesController {
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser() user: JwtPayload,
   ) {
-    return this.service.findOneRaw(id, user);
+    const dto = await this.service.findOneRaw(id, user);
+    return ReporteResponseDto.paraLector(dto, user);
   }
 
   @Patch(':id')

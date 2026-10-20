@@ -5,7 +5,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import type { JwtPayload } from './jwt';
+import type { RequestConUsuario } from './request-con-usuario';
 import { NombreRol, PUBLIC_KEY, ROLES_KEY } from './roles';
 
 // Guard GLOBAL que corre después de AuthGuard: si el endpoint tiene
@@ -26,9 +26,7 @@ export class RolesGuard implements CanActivate {
     if (!permitidos || permitidos.length === 0) {
       return true;
     }
-    const user: JwtPayload | undefined = context
-      .switchToHttp()
-      .getRequest().user;
+    const user = context.switchToHttp().getRequest<RequestConUsuario>().user;
     if (!user || !permitidos.includes(user.rol as NombreRol)) {
       throw new ForbiddenException('No tienes permiso para hacer esto');
     }

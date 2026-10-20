@@ -9,14 +9,25 @@ import { Repository } from 'typeorm';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import { DB_POOL } from '../database/database.module';
 import { Evidencia } from './entities/evidencia.entity';
-import {
-  EstadoReporte,
-  Reporte,
-} from '../reportes/entities/reporte.entity';
+import { EstadoReporte, Reporte } from '../reportes/entities/reporte.entity';
 import type { JwtPayload } from '../auth/jwt';
 import { esAdmin } from '../auth/roles';
 import { EvidenciaResponseDto } from './dto/evidencia-response.dto';
-import { extname } from 'node:path';
+import {
+  borrarEvidencia,
+  guardarEvidencia,
+  nombreArchivoValido,
+  PREFIJO_URL,
+  rutaEvidencia,
+  type EvidenciaValidada,
+} from '../common/storage/evidencia-storage';
+
+interface EvidenciaRow extends RowDataPacket {
+  id_evidencia: number;
+  tipo_evidencia: string;
+  archivo: string;
+  formato: string;
+}
 
 // Este service usa el repositorio de Reporte directo (no ReportesService)
 // para evitar la dependencia circular entre EvidenciaModule y ReportesModule.
@@ -43,20 +54,17 @@ export class EvidenciaService {
 
   private async crearDesdeArchivo(
     reporte: Reporte,
-    file: Express.Multer.File,
+    validada: EvidenciaValidada,
   ): Promise<Evidencia> {
-    const archivoUrl = `/uploads/${file.filename}`;
-    const extension = extname(file.originalname).toLowerCase().replace('.', '');
-    const tipoEvidencia =
-      file.mimetype === 'application/pdf' || extension === 'pdf'
-        ? 'pdf'
-        : 'imagen';
+    // El formato lo deciden los bytes del archivo, no lo que dijo el cliente.
+    const guardado = await guardarEvidencia(validada);
+    const archivoUrl = guardado.url;
 
     const evidencia = this.repository.create({
       reporte,
-      tipoEvidencia,
+      tipoEvidencia: guardado.esPdf ? 'pdf' : 'imagen',
       archivo: archivoUrl,
-      formato: extension,
+      formato: guardado.formato,
     });
     const guardada = await this.repository.save(evidencia);
 
@@ -68,16 +76,16 @@ export class EvidenciaService {
 
   async crearVarias(
     reporte: Reporte,
-    files: Express.Multer.File[],
+    validadas: EvidenciaValidada[],
   ): Promise<Evidencia[]> {
-    if (!files || files.length === 0) {
+    if (validadas.length === 0) {
       throw new BadRequestException(
         'Debes adjuntar al menos un archivo de evidencia.',
       );
     }
     const evidencias: Evidencia[] = [];
-    for (const file of files) {
-      evidencias.push(await this.crearDesdeArchivo(reporte, file));
+    for (const validada of validadas) {
+      evidencias.push(await this.crearDesdeArchivo(reporte, validada));
     }
     return evidencias;
   }
@@ -108,7 +116,7 @@ export class EvidenciaService {
   // Solo el autor (mientras siga pendiente) o un admin.
   async create(
     idReporte: number,
-    files: Express.Multer.File[],
+    validadas: EvidenciaValidada[],
     user: JwtPayload,
   ): Promise<Evidencia[]> {
     const reporte = await this.reporteVisible(idReporte, user);
@@ -119,7 +127,7 @@ export class EvidenciaService {
     ) {
       throw new NotFoundException(`Reporte ${idReporte} no encontrado`);
     }
-    return this.crearVarias(reporte, files);
+    return this.crearVarias(reporte, validadas);
   }
 
   // Lista las evidencias de un reporte, leídas con SQL directo ("?" = sin
@@ -129,8 +137,9 @@ export class EvidenciaService {
     user: JwtPayload,
   ): Promise<EvidenciaResponseDto[]> {
     await this.reporteVisible(idReporte, user);
-    const [rows] = await this.pool.query<RowDataPacket[]>(
-      'SELECT * FROM evidencia WHERE id_reporte = ?',
+    const [rows] = await this.pool.query<EvidenciaRow[]>(
+      `SELECT id_evidencia, tipo_evidencia, archivo, formato
+       FROM evidencia WHERE id_reporte = ?`,
       [idReporte],
     );
     return rows.map((row) => {
@@ -164,8 +173,51 @@ export class EvidenciaService {
     return evidencia;
   }
 
+  // GET /uploads/:archivo. Antes Express servía la carpeta tal cual, sin
+  // token y sin revisar de quién era la evidencia. Ahora pasa por el guard
+  // y por la misma regla que el detalle del reporte. Un archivo ajeno o
+  // inexistente responde 404 igual, para no confirmar que existe.
+  async archivoVisible(nombre: string, user: JwtPayload): Promise<string> {
+    const noEncontrado = new NotFoundException('Archivo no encontrado');
+    if (!nombreArchivoValido(nombre)) {
+      throw noEncontrado;
+    }
+    const evidencia = await this.repository.findOne({
+      where: { archivo: PREFIJO_URL + nombre },
+      relations: ['reporte'],
+    });
+    if (!evidencia) {
+      throw noEncontrado;
+    }
+    try {
+      await this.reporteVisible(evidencia.reporte.idReporte, user);
+    } catch {
+      throw noEncontrado;
+    }
+    return rutaEvidencia(nombre);
+  }
+
   async remove(id: number): Promise<void> {
     const evidencia = await this.findOne(id);
     await this.repository.remove(evidencia);
+    // Si era la portada del reporte, se quita para no dejar un enlace roto
+    // ('' y no null: la app iOS espera siempre un texto).
+    if (evidencia.reporte.evidenciaPrincipal === evidencia.archivo) {
+      await this.reporteRepository.update(evidencia.reporte.idReporte, {
+        evidenciaPrincipal: '',
+      });
+    }
+    await borrarEvidencia(evidencia.archivo);
+  }
+
+  // Lo usa ReportesService al borrar un reporte: la BD borra las filas en
+  // cascada, pero los archivos hay que quitarlos a mano.
+  async borrarArchivosDeReporte(idReporte: number): Promise<void> {
+    const evidencias = await this.repository.find({
+      where: { reporte: { idReporte } },
+    });
+    for (const e of evidencias) {
+      await borrarEvidencia(e.archivo);
+    }
   }
 }

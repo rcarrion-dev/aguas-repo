@@ -1,10 +1,4 @@
-import {
-  Controller,
-  Get,
-  Param,
-  ParseIntPipe,
-  Patch,
-} from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, Patch } from '@nestjs/common';
 import { ApiBearerAuth } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator';
 import type { JwtPayload } from '../auth/jwt';
@@ -21,7 +15,7 @@ export class NotificacionesController {
   @Get('mias')
   async findMias(@CurrentUser() user: JwtPayload) {
     const notificaciones = await this.service.findByUsuario(Number(user.sub));
-    return notificaciones.map(NotificacionResponseDto.fromEntity);
+    return notificaciones.map((e) => NotificacionResponseDto.fromEntity(e));
   }
 
   @Patch(':id/leer')
@@ -29,10 +23,7 @@ export class NotificacionesController {
     @CurrentUser() user: JwtPayload,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    const notificacion = await this.service.marcarLeida(
-      id,
-      Number(user.sub),
-    );
+    const notificacion = await this.service.marcarLeida(id, Number(user.sub));
     return NotificacionResponseDto.fromEntity(notificacion);
   }
 }

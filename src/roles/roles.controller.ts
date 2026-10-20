@@ -1,29 +1,16 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  HttpCode,
-  Param,
-  ParseIntPipe,
-  Patch,
-  Post,
-} from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe } from '@nestjs/common';
 import { ROL, Roles } from '../auth/roles';
 import { RolesService } from './roles.service';
-import { CreateRolDto } from './dto/create-rol.dto';
-import { UpdateRolDto } from './dto/update-rol.dto';
 
-// Catálogo de roles: solo administrador.
+// Catálogo de roles: SOLO LECTURA, y solo administrador.
+// Los permisos de toda la API comparan el NOMBRE del rol ('administrador',
+// 'SSC', 'usuario'). Si se pudiera renombrar o borrar un rol por la API, un
+// solo PATCH rompería el control de acceso de todo el sistema. Los roles se
+// definen en 4Fantasticos_base_datos.sql.
 @Roles(ROL.ADMIN)
 @Controller('roles')
 export class RolesController {
   constructor(private readonly service: RolesService) {}
-
-  @Post()
-  create(@Body() dto: CreateRolDto) {
-    return this.service.create(dto);
-  }
 
   @Get()
   findAll() {
@@ -33,16 +20,5 @@ export class RolesController {
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.service.findOne(id);
-  }
-
-  @Patch(':id')
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateRolDto) {
-    return this.service.update(id, dto);
-  }
-
-  @Delete(':id')
-  @HttpCode(204)
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.service.remove(id);
   }
 }

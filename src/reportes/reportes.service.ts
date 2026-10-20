@@ -21,10 +21,51 @@ import { NotificacionesService } from '../notificaciones/notificaciones.service'
 import { EvidenciaService } from '../evidencia/evidencia.service';
 import type { JwtPayload } from '../auth/jwt';
 import { esAdmin } from '../auth/roles';
+import type { EvidenciaValidada } from '../common/storage/evidencia-storage';
 
 // Todas las consultas con SQL directo usan "?" para los valores (nunca
 // pegarlos en el texto del SQL), así mysql2 los escapa y se evita la
 // inyección SQL.
+
+// Columnas explícitas (no "r.*"): la consulta trae solo lo que se usa.
+const COLUMNAS_REPORTE = `r.id_reporte, r.id_usuario, r.descripcion,
+       r.telefono_estafador, r.enlace_sospechoso, r.empresa_suplantada,
+       r.fecha_reporte, r.estado, r.evidencia_principal,
+       u.nombre AS u_nombre, u.apellido AS u_apellido`;
+
+interface ReporteRow extends RowDataPacket {
+  id_reporte: number;
+  id_usuario: number;
+  descripcion: string | null;
+  telefono_estafador: string | null;
+  enlace_sospechoso: string | null;
+  empresa_suplantada: string;
+  fecha_reporte: Date | null;
+  estado: EstadoReporte;
+  evidencia_principal: string;
+  u_nombre: string;
+  u_apellido: string;
+}
+
+function dtoDesdeFila(row: ReporteRow): ReporteResponseDto {
+  const dto = new ReporteResponseDto();
+  dto.idReporte = row.id_reporte;
+  dto.descripcion = row.descripcion;
+  dto.telefonoEstafador = row.telefono_estafador;
+  dto.enlaceSospechoso = row.enlace_sospechoso;
+  dto.fechaReporte = row.fecha_reporte
+    ? new Date(row.fecha_reporte).toISOString()
+    : '';
+  dto.empresaSuplantada = row.empresa_suplantada;
+  dto.estado = row.estado;
+  dto.evidenciaPrincipal = row.evidencia_principal;
+  dto.usuario = {
+    idUsuario: row.id_usuario,
+    nombre: row.u_nombre,
+    apellido: row.u_apellido,
+  };
+  return dto;
+}
 
 @Injectable()
 export class ReportesService {
@@ -45,7 +86,7 @@ export class ReportesService {
   async create(
     idUsuario: number,
     dto: CreateReporteDto,
-    files: Express.Multer.File[],
+    validadas: EvidenciaValidada[],
   ): Promise<Reporte> {
     // El token puede seguir vigente unos minutos después de suspender la
     // cuenta; aquí se revisa en la BD para cortarlo al instante.
@@ -73,9 +114,12 @@ export class ReportesService {
       relations: ['usuario'],
     });
 
-    await this.evidenciaService.crearVarias(guardado!, files);
+    if (!guardado) {
+      throw new NotFoundException(`Reporte ${result.insertId} no encontrado`);
+    }
+    await this.evidenciaService.crearVarias(guardado, validadas);
 
-    return guardado!;
+    return guardado;
   }
 
   // RF04 - buscador público: solo reportes ya verificados por moderación
@@ -99,8 +143,8 @@ export class ReportesService {
   // Admin ve cualquiera. Los demás ven los verificados y, si son el autor,
   // también los suyos pendientes/rechazados.
   async findOneRaw(id: number, user: JwtPayload): Promise<ReporteResponseDto> {
-    const [rows] = await this.pool.query<RowDataPacket[]>(
-      `SELECT r.*, u.nombre AS u_nombre, u.apellido AS u_apellido
+    const [rows] = await this.pool.query<ReporteRow[]>(
+      `SELECT ${COLUMNAS_REPORTE}
        FROM reporte r JOIN usuario u ON u.id_usuario = r.id_usuario
        WHERE r.id_reporte = ?`,
       [id],
@@ -115,23 +159,7 @@ export class ReportesService {
       // 404 y no 403: así no se revela que el reporte existe.
       throw new NotFoundException(`Reporte ${id} no encontrado`);
     }
-    const dto = new ReporteResponseDto();
-    dto.idReporte = row.id_reporte;
-    dto.descripcion = row.descripcion;
-    dto.telefonoEstafador = row.telefono_estafador;
-    dto.enlaceSospechoso = row.enlace_sospechoso;
-    dto.fechaReporte = row.fecha_reporte
-      ? new Date(row.fecha_reporte).toISOString()
-      : '';
-    dto.empresaSuplantada = row.empresa_suplantada;
-    dto.estado = row.estado;
-    dto.evidenciaPrincipal = row.evidencia_principal;
-    dto.usuario = {
-      idUsuario: row.id_usuario,
-      nombre: row.u_nombre,
-      apellido: row.u_apellido,
-    };
-    return dto;
+    return dtoDesdeFila(row);
   }
 
   // "Mis reportes": los del usuario del token (id_usuario = sub). Acepta un
@@ -140,7 +168,7 @@ export class ReportesService {
     idUsuario: number,
     estado?: EstadoReporte,
   ): Promise<ReporteResponseDto[]> {
-    let sql = `SELECT r.*, u.nombre AS u_nombre, u.apellido AS u_apellido
+    let sql = `SELECT ${COLUMNAS_REPORTE}
        FROM reporte r JOIN usuario u ON u.id_usuario = r.id_usuario
        WHERE r.id_usuario = ?`;
     const params: (number | string)[] = [idUsuario];
@@ -150,26 +178,8 @@ export class ReportesService {
     }
     sql += ' ORDER BY r.fecha_reporte DESC';
 
-    const [rows] = await this.pool.query<RowDataPacket[]>(sql, params);
-    return rows.map((row) => {
-      const dto = new ReporteResponseDto();
-      dto.idReporte = row.id_reporte;
-      dto.descripcion = row.descripcion;
-      dto.telefonoEstafador = row.telefono_estafador;
-      dto.enlaceSospechoso = row.enlace_sospechoso;
-      dto.fechaReporte = row.fecha_reporte
-        ? new Date(row.fecha_reporte).toISOString()
-        : '';
-      dto.empresaSuplantada = row.empresa_suplantada;
-      dto.estado = row.estado;
-      dto.evidenciaPrincipal = row.evidencia_principal;
-      dto.usuario = {
-        idUsuario: row.id_usuario,
-        nombre: row.u_nombre,
-        apellido: row.u_apellido,
-      };
-      return dto;
-    });
+    const [rows] = await this.pool.query<ReporteRow[]>(sql, params);
+    return rows.map(dtoDesdeFila);
   }
 
   async findOne(id: number): Promise<Reporte> {
@@ -259,6 +269,7 @@ export class ReportesService {
 
   async remove(id: number): Promise<void> {
     const reporte = await this.findOne(id);
+    await this.evidenciaService.borrarArchivosDeReporte(id);
     await this.repository.remove(reporte);
   }
 }
