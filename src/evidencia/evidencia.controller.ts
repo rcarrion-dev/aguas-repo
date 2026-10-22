@@ -19,9 +19,10 @@ import { EvidenciaService } from './evidencia.service';
 import { CreateEvidenciaDto } from './dto/create-evidencia.dto';
 import { EvidenciaResponseDto } from './dto/evidencia-response.dto';
 import {
-  evidenciaMulterOptions,
+  evidenciaUploadOptions,
   MAX_ARCHIVOS,
-} from '../common/multer/evidencia-multer.config';
+  validarEvidencia,
+} from '../common/storage/evidencia-storage';
 import { MulterExceptionFilter } from '../common/multer/multer-exception.filter';
 
 @Controller('evidencia')
@@ -29,19 +30,24 @@ import { MulterExceptionFilter } from '../common/multer/multer-exception.filter'
 export class EvidenciaController {
   constructor(private readonly service: EvidenciaService) {}
 
-  // Petición multipart/form-data: idReporte (texto) + hasta 3 archivos en
-  // el campo "archivos" (PDF o imagen, máx. 5MB c/u).
+  // Petición multipart/form-data: idReporte (texto) + 1 archivo en el
+  // campo "archivos" (PDF o imagen, máx. 5 MB).
   @Post()
   @UseInterceptors(
-    FilesInterceptor('archivos', MAX_ARCHIVOS, evidenciaMulterOptions),
+    FilesInterceptor('archivos', MAX_ARCHIVOS, evidenciaUploadOptions),
   )
   async create(
     @Body() dto: CreateEvidenciaDto,
     @UploadedFiles() files: Express.Multer.File[],
     @CurrentUser() user: JwtPayload,
   ) {
-    const evidencias = await this.service.create(dto.idReporte, files, user);
-    return evidencias.map(EvidenciaResponseDto.fromEntity);
+    const validadas = validarEvidencia(files);
+    const evidencias = await this.service.create(
+      dto.idReporte,
+      validadas,
+      user,
+    );
+    return evidencias.map((e) => EvidenciaResponseDto.fromEntity(e));
   }
 
   @Get('reporte/:idReporte')

@@ -8,16 +8,14 @@ export const DB_POOL = 'DB_POOL';
   providers: [
     {
       provide: DB_POOL,
-      useFactory: () => {
-        console.log('Conectando a MySQL como ' + process.env.DB_USER);
-        return createPool({
+      useFactory: () =>
+        createPool({
           host: process.env.DB_HOST,
           port: Number(process.env.DB_PORT),
           user: process.env.DB_USER,
           password: process.env.DB_PASSWORD,
           database: process.env.DB_NAME,
-        });
-      },
+        }),
     },
   ],
   exports: [DB_POOL],

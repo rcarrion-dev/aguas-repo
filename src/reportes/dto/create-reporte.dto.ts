@@ -1,15 +1,11 @@
 import { Transform } from 'class-transformer';
-import {
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 // Quita espacios al inicio y al final: así "   " cuenta como vacío.
 const trim = () =>
-  Transform(({ value }) => (typeof value === 'string' ? value.trim() : value));
-
+  Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  );
 // Petición multipart/form-data (va junto con el archivo de evidencia).
 // El autor del reporte NO viaja en el body: se toma del token JWT
 // (req.user.sub) en el controller.

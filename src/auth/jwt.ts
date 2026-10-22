@@ -1,4 +1,6 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+// Los tokens se firman y verifican con @nestjs/jwt (ver tokens.service.ts).
+// Antes estaba escrito a mano; la librería ya trae la comparación en tiempo
+// constante, la validación de "exp" y la restricción del algoritmo.
 
 export interface JwtPayload {
   sub: string;
@@ -9,73 +11,39 @@ export interface JwtPayload {
   exp: number;
 }
 
-// La llave se lee del .env (JWT_SECRET), nunca del código: el repo es
-// público y con la llave cualquiera podría fabricar tokens válidos.
-// Se lee "tarde" (al firmar/verificar) porque cuando este archivo se carga
-// todavía no se ha leído el .env.
-function secret(): string {
-  const s = process.env.JWT_SECRET;
-  if (!s || s.length < 32) {
+export type TipoToken = JwtPayload['type'];
+
+const MINIMO = 32;
+
+// Cada tipo de token tiene su propia llave. Si se filtra la del access
+// token, no sirve para fabricar refresh tokens de 7 días (y viceversa).
+const VARIABLE: Record<TipoToken, string> = {
+  access: 'JWT_SECRET',
+  refresh: 'JWT_REFRESH_SECRET',
+};
+
+// Las llaves se leen del .env, nunca del código: el repo es público y con
+// la llave cualquiera podría fabricar tokens válidos. Se leen "tarde" (al
+// firmar/verificar) porque cuando este archivo se carga todavía no se ha
+// leído el .env.
+export function secretoPara(tipo: TipoToken): string {
+  const nombre = VARIABLE[tipo];
+  const valor = process.env[nombre];
+  if (!valor || valor.length < MINIMO) {
     throw new Error(
-      'Falta JWT_SECRET en el .env (mínimo 32 caracteres). Genera una con: ' +
+      `Falta ${nombre} en el .env (mínimo ${MINIMO} caracteres). Genera una con: ` +
         `node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"`,
     );
   }
-  return s;
+  return valor;
 }
 
-// Se llama al arrancar para que el server truene de inmediato si falta la
+// Se llama al arrancar para que el server truene de inmediato si falta una
 // llave, y no hasta el primer login.
-export function assertJwtSecret(): void {
-  secret();
-}
-
-function now(): number {
-  return Math.floor(Date.now() / 1000);
-}
-
-function b64url(json: object): string {
-  return Buffer.from(JSON.stringify(json)).toString('base64url');
-}
-
-function hmac(data: string): string {
-  return createHmac('sha256', secret()).update(data).digest('base64url');
-}
-
-export function sign(
-  payload: Omit<JwtPayload, 'iat' | 'exp'>,
-  ttlSeconds: number,
-): string {
-  const header = b64url({ alg: 'HS256', typ: 'JWT' });
-  const body = b64url({ ...payload, iat: now(), exp: now() + ttlSeconds });
-  const signature = hmac(`${header}.${body}`);
-  return `${header}.${body}.${signature}`;
-}
-
-export function verify(token: string): JwtPayload | null {
-  const [header, body, signature, ...resto] = token.split('.');
-  if (!header || !body || !signature || resto.length > 0) {
-    return null;
-  }
-  // Comparación en tiempo constante: con "!==" se puede adivinar la firma
-  // midiendo cuánto tarda el servidor en responder.
-  const esperada = Buffer.from(hmac(`${header}.${body}`));
-  const recibida = Buffer.from(signature);
-  if (
-    esperada.length !== recibida.length ||
-    !timingSafeEqual(esperada, recibida)
-  ) {
-    return null;
-  }
-  try {
-    const payload = JSON.parse(
-      Buffer.from(body, 'base64url').toString(),
-    ) as JwtPayload;
-    if (typeof payload.exp !== 'number' || payload.exp < now()) {
-      return null;
-    }
-    return payload;
-  } catch {
-    return null;
+export function assertJwtSecrets(): void {
+  secretoPara('access');
+  secretoPara('refresh');
+  if (secretoPara('access') === secretoPara('refresh')) {
+    throw new Error('JWT_SECRET y JWT_REFRESH_SECRET deben ser distintas.');
   }
 }

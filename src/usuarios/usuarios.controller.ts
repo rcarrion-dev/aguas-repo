@@ -79,7 +79,10 @@ export class UsuariosController {
   @Delete(':id')
   @Roles(ROL.ADMIN)
   @HttpCode(204)
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.service.remove(id);
+  remove(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.service.remove(id, Number(user.sub));
   }
 }

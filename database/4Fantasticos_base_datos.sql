@@ -3,7 +3,7 @@
 -- Basado en el ERD dibujado por el equipo (Rol, Usuario, Notificacion,
 -- Tipo_fraude, Reporte, Bitacora, Evidencia, Revision_reporte)
 -- =====================================================================
-
+SET NAMES utf8mb4;
 CREATE DATABASE IF NOT EXISTS aguas_db
     CHARACTER SET utf8mb4
     COLLATE utf8mb4_unicode_ci;

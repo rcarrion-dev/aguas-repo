@@ -11,25 +11,27 @@ export class RegisterDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
-  nombre: string | undefined;
+  nombre!: string;
 
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
-  apellido: string | undefined;
+  apellido!: string;
 
   @IsEmail()
-  correo: string | undefined;
+  @MaxLength(255)
+  correo!: string;
 
   @IsString()
   @MinLength(8)
-  password: string | undefined;
+  @MaxLength(128)
+  password!: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(20)
   telefono?: string;
 
-  // Ya no se acepta idRol: el registro público siempre crea un 'usuario'.
-  // (Si alguien lo manda, ValidationPipe con whitelist lo descarta.)
+  // No se acepta idRol: el registro público siempre crea un 'usuario'.
+  // Si alguien lo manda, el ValidationPipe responde 400.
 }

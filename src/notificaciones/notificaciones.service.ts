@@ -43,10 +43,7 @@ export class NotificacionesService {
     });
   }
 
-  async marcarLeida(
-    id: number,
-    idUsuario: number,
-  ): Promise<Notificacion> {
+  async marcarLeida(id: number, idUsuario: number): Promise<Notificacion> {
     const notificacion = await this.repository.findOne({
       where: {
         idNotificacion: id,

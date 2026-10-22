@@ -1,9 +1,13 @@
-import { IsEmail, IsString } from 'class-validator';
+import { IsEmail, IsString, MaxLength } from 'class-validator';
 
+// "!:" en lugar de "| undefined": el ValidationPipe garantiza que el campo
+// llega, así que no hace falta repetir "!" cada vez que se usa.
 export class LoginDto {
   @IsEmail()
-  correo: string | undefined;
+  @MaxLength(255)
+  correo!: string;
 
   @IsString()
-  password: string | undefined;
+  @MaxLength(128)
+  password!: string;
 }

@@ -36,10 +36,20 @@ export class Reporte {
   @Column('text', { nullable: true })
   descripcion: string | null;
 
-  @Column({ type: 'varchar', name: 'telefono_estafador', length: 20, nullable: true })
+  @Column({
+    type: 'varchar',
+    name: 'telefono_estafador',
+    length: 20,
+    nullable: true,
+  })
   telefonoEstafador: string | null;
 
-  @Column({ type: 'varchar', name: 'enlace_sospechoso', length: 255, nullable: true })
+  @Column({
+    type: 'varchar',
+    name: 'enlace_sospechoso',
+    length: 255,
+    nullable: true,
+  })
   enlaceSospechoso: string | null;
 
   @CreateDateColumn({ name: 'fecha_reporte' })

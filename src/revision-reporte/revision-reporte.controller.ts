@@ -10,10 +10,8 @@ export class RevisionReporteController {
   constructor(private readonly service: RevisionReporteService) {}
 
   @Get('bitacora/:idBitacora')
-  async findByBitacora(
-    @Param('idBitacora', ParseIntPipe) idBitacora: number,
-  ) {
+  async findByBitacora(@Param('idBitacora', ParseIntPipe) idBitacora: number) {
     const revisiones = await this.service.findByBitacora(idBitacora);
-    return revisiones.map(RevisionReporteResponseDto.fromEntity);
+    return revisiones.map((e) => RevisionReporteResponseDto.fromEntity(e));
   }
 }

@@ -149,8 +149,30 @@ export class UsuariosService {
     return this.repository.save(usuario);
   }
 
-  async remove(id: number): Promise<void> {
+  // Mismas reglas que suspender: nadie borra su propia cuenta ni la de un
+  // administrador. Si no, un solo admin podría dejar al sistema sin nadie
+  // que modere (o un token robado de admin borraría a los demás).
+  async remove(id: number, idAdmin: number): Promise<void> {
+    if (id === idAdmin) {
+      throw new BadRequestException('No puedes eliminar tu propia cuenta.');
+    }
     const usuario = await this.findOne(id);
+    if (usuario.rol?.nombreRol === ROL.ADMIN) {
+      throw new BadRequestException(
+        'Las cuentas de administrador no se pueden eliminar desde la API.',
+      );
+    }
+    // Sus reportes apuntan a la cuenta (llave foránea). Antes esto tronaba
+    // con un 500; es una regla de negocio, así que se responde 409.
+    const [{ total }] = await this.repository.query<{ total: string }[]>(
+      'SELECT COUNT(*) AS total FROM reporte WHERE id_usuario = ?',
+      [id],
+    );
+    if (Number(total) > 0) {
+      throw new ConflictException(
+        'La cuenta tiene reportes y no se puede eliminar. Suspéndela en su lugar.',
+      );
+    }
     await this.repository.remove(usuario);
   }
 }
